@@ -91,3 +91,21 @@ gh repo sync by0212zy/certimate --source certimate-go/certimate
 ```
 
 > 若官方修改了 `go.mod` / 构建方式，重新触发 Actions 即可重新打包安卓版。
+
+## 八、一键同步上游并发布安卓版
+
+仓库根目录提供 `sync-android.sh`，把「同步上游 → 打安卓版 tag → 推送触发 CI」串成一步：
+
+```sh
+chmod +x sync-android.sh
+./sync-android.sh
+```
+
+脚本会自动：拉取上游最新代码/标签 → 合并 `upstream/main` 并 push 到你的 fork（触发 CI 构建
+`linux/arm64` + `android/arm64` 两个 Artifact）→ 基于上游最新版本号打 `vX.Y.Z-android` tag 并
+push（触发 CI 把两个二进制上传到 GitHub **Release**，永久可下载）。
+
+可用环境变量微调：`UPSTREAM`（默认 `upstream`）、`ORIGIN`（默认 `origin`）、`TAG_SUFFIX`（默认 `-android`）。
+
+> 前置要求：本地已配置 `upstream` 指向官方 `certimate-go/certimate`、且 `origin` 指向你的 fork
+> （首次使用见第七节）。脚本会先检查工作区是否干净，有未提交改动会中止。
