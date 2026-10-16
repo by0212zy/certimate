@@ -18,8 +18,13 @@ jobs:
     name: Linux/arm64 (Android 稳定版)
     runs-on: ubuntu-latest
     steps:
+      - name: Use HTTPS for git protocol (submodule 为 SSH 形式)
+        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: true
+          persist-credentials: false
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -63,8 +68,13 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
+      - name: Use HTTPS for git protocol (submodule 为 SSH 形式)
+        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: true
+          persist-credentials: false
 
       - name: Setup Node
         uses: actions/setup-node@v4
