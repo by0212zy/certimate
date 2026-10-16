@@ -103,7 +103,8 @@ jobs:
           CGO_ENABLED: '1'
           GOOS: android
           GOARCH: arm64
-          CC: ${{ env.ANDROID_NDK_HOME }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang
+          CC: ${{ steps.ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang
+          CXX: ${{ steps.ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang++
         run: |
           mkdir -p dist
           go build -trimpath -ldflags="-s -w" -o dist/certimate-android-arm64 .
