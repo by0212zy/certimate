@@ -91,3 +91,55 @@ gh repo sync by0212zy/certimate --source certimate-go/certimate
 ```
 
 > 若官方修改了 `go.mod` / 构建方式，重新触发 Actions 即可重新打包安卓版。
+
+## 八、Let's Encrypt 在中国大陆：IPv4 被阻断，强制走 IPv6
+
+**现象**：浏览器 / VPN 客户端能打开 `acme-v02.api.letsencrypt.org`，但 certimate 报
+`TLS handshake timeout` 或 `read ... -> 172.65.32.248:443: connection reset by peer`。
+
+**原因**：Let's Encrypt 主机走 Cloudflare，其 **IPv4 路径在中国大陆常被阻断**，
+而设备自带的 **IPv6 路径是通的**（`curl -v https://acme-v02.api.letsencrypt.org/directory`
+走 IPv6 能返回 `HTTP/2 200`）。Go 的「Happy Eyeballs」会先尝试 IPv4，而 IPv4 在
+TLS 阶段才被 RST，Go 误以为「已连接」便返回了 IPv4 连接，**IPv6 没机会被使用**。
+
+> 同一网络下 `acme.litessl.com`（LiteSSL / freessl.cn，国内直连）是通的，但它强制要求
+> EAB 绑定（详见第 X 节）。若不想配 EAB，用下面的「强制 IPv6」方案即可继续用 Let's Encrypt。
+
+### 方案 A（推荐，两种二进制都适用）：本地 IPv6 代理 + `HTTPS_PROXY`
+
+lego v5 的 `http.Client` 设置了 `Proxy: http.ProxyFromEnvironment`，会读取 `HTTPS_PROXY`。
+本目录的 `ipv6-proxy.py`（**纯 Python 标准库，无需 pip 安装**）收到请求后**优先用 IPv6
+解析并拨号**目标主机，再双向转发。所有 ACME 流量（目录 / newAccount / newOrder / OCSP / AIA）
+都从设备 IPv6 出口出去，绕过被墙的 IPv4。
+
+```sh
+# 1) 启动代理（监听 127.0.0.1:8899）
+nohup python3 ipv6-proxy.py 8899 >/dev/null 2>&1 &
+
+# 2) 让 certimate 走该代理启动（lego 自动读取 HTTPS_PROXY）
+HTTPS_PROXY=http://127.0.0.1:8899 ./certimate serve --http 0.0.0.0:8090
+```
+
+验证代理是否生效：启动后看 certimate 日志里的 ACME 报错是否消失；或另开终端
+`curl -x http://127.0.0.1:8899 https://acme-v02.api.letsencrypt.org/directory` 应返回 JSON。
+
+### 方案 B（快速，仅适用于 `certimate-linux-arm64` 即 CGO=0 版）：`/etc/hosts` 钉死 IPv6
+
+纯 Go 解析器会读 `/etc/hosts`（Termux 的 `/etc/hosts` 无需 root 即可改）：
+
+```sh
+echo "2606:4700:60:0:f53d:5624:85c7:3a2c acme-v02.api.letsencrypt.org" >> $PREFIX/etc/hosts
+```
+
+> ⚠️ `certimate-android-arm64`（CGO+NDK 版）走安卓系统解析器，**不读 /etc/hosts**，
+> 方案 B 对它无效；方案 A 两种二进制都适用。
+> 若申请时还报其它 `*.lencr.org` / `*.letsencrypt.org` 域名解析/连接失败，把对应主机也
+> 用 `curl -v` 取到的 IPv6 追加进 `/etc/hosts` 即可（或改用方案 A，一劳永逸）。
+
+### LiteSSL / freessl.cn 的 EAB（如果想用国内 CA 而非 Let's Encrypt）
+
+LiteSSL（`acme.litessl.com`）是 TrustAsia 旗下国内直连 CA，**强制要求 EAB 绑定**：
+1. 打开 https://freessl.cn 注册登录 → 证书自动化 → ACME 账户管理 → 新增凭证，
+   拿到 **Key ID** 与 **HMAC Key**。
+2. certimate：「设置 → 证书颁发机构 → 编辑 LiteSSL」，填入 **EAB Key ID / EAB HMAC Key** → 保存。
+3. 重新申请证书。
