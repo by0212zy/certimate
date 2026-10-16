@@ -1,0 +1,112 @@
+name: Build for Android
+
+# 自动为安卓（ARM64）打包 certimate 二进制。
+# - Linux/arm64：纯 Go 编译，已在安卓（Termux / MT 管理器 / 任意 Linux arm64 环境）验证可运行，最稳定。
+# - Android/arm64：启用 CGO + Android NDK，使 Go 运行时走 bionic getaddrinfo -> 安卓系统 DNS（无需代理/iptables）。
+#   该任务设为 continue-on-error，即便失败也不影响 Linux/arm64 产物。
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux-arm64:
+    name: Linux/arm64 (Android 稳定版)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Build web UI
+        working-directory: ui
+        run: |
+          npm ci
+          npm run build
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Build linux/arm64
+        env:
+          CGO_ENABLED: '0'
+          GOOS: linux
+          GOARCH: arm64
+        run: |
+          mkdir -p dist
+          go build -trimpath -ldflags="-s -w" -o dist/certimate-linux-arm64 .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: certimate-linux-arm64
+          path: dist/certimate-linux-arm64
+
+      - name: Upload to Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/certimate-linux-arm64
+
+  build-android-arm64:
+    name: Android/arm64 (系统 DNS 版 · NDK)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Build web UI
+        working-directory: ui
+        run: |
+          npm ci
+          npm run build
+
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        id: ndk
+        with:
+          ndk-version: r27
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Build android/arm64 with CGO
+        env:
+          CGO_ENABLED: '1'
+          GOOS: android
+          GOARCH: arm64
+          CC: ${{ env.ANDROID_NDK_HOME }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang
+        run: |
+          mkdir -p dist
+          go build -trimpath -ldflags="-s -w" -o dist/certimate-android-arm64 .
+
+      - name: Upload artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: certimate-android-arm64
+          path: dist/certimate-android-arm64
+
+      - name: Upload to Release
+        if: success() && startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/certimate-android-arm64
